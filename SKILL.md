@@ -1,13 +1,18 @@
 ---
 name: wechat-desktop-reader
-description: Read user-specified messages and images from a logged-in Windows WeChat/Weixin client, including from WSL. Use for 微信聊天记录、某联系人发来的图片或检查报告. Local background reading supports individual contacts only, not group chats; guarded desktop capture is also available. This is not public-account article retrieval or a guaranteed complete-history connector.
+description: Read user-specified WeChat/Weixin messages and images on Windows/WSL, or experimentally on native macOS with existing raw database keys. Use for 微信聊天记录、某联系人发来的图片或检查报告. Local reading supports individual contacts only; guarded desktop capture is Windows-only. Not public-account article retrieval or guaranteed complete history.
 ---
 
 # WeChat desktop reader
 
-Version 0.2.1, prepared 2026-10-25. The local mode reads an explicitly authorized account and individual contact through a read-only, page-based database adapter and local image files. Group chats are not supported in local mode. It does not navigate or restore WeChat. The desktop mode remains available for material not present in local storage; group-chat desktop collection has not received dedicated live validation. Both paths were developed against Windows Weixin 4.1.15.55; version changes require fresh verification.
+Version 0.3.0-alpha.1, prepared 2026-10-25. Local modes read an explicitly authorized account and individual contact through a read-only, page-based database adapter and local image files. Group chats are not supported. They do not navigate or restore WeChat. Windows desktop capture remains available for material not present in local storage; group-chat desktop collection has not received dedicated live validation. Windows paths were developed against Weixin 4.1.15.55; version changes require fresh verification. The native macOS adapter is experimental and has no live WeChat validation.
 
-For background or minimized-window requests, first read [references/local-mode.md](references/local-mode.md). Use `scripts/local_reader.py` only within an authorized account/contact scope. It returns actual read counts, image tiers, coverage boundaries, and observed foreground/minimized status. Never run `_windows_keys.py` directly: its stdout is private key material captured only by the parent process. Never import the complete upstream package or substitute its full-database export/key-cache/UI routines.
+Choose the platform before executing commands:
+
+- **Windows/WSL:** for background or minimized-window requests read [references/local-mode.md](references/local-mode.md), then use `scripts/local_reader.py` within an authorized account/contact/process-reading scope. It returns actual read counts, image tiers, coverage boundaries, and observed foreground/minimized status. Never run `_windows_keys.py` directly: its stdout is private key material captured only by the parent process.
+- **Native macOS:** read [references/macos.md](references/macos.md), then use `scripts/mac_reader.py`. It requires an already available private raw-key file matching the selected account. It does not extract Mac process keys or observe window state. Without valid keys, report that only environment/path checks are available. Do not print key files through terminal/model-visible tools. Missing media mappings or keys remain explicit gaps. Do not use Windows commands or attempt app re-signing, debugging, SIP changes, or UI activation as an implicit fallback.
+
+Never import a complete upstream package or substitute its full-database export/key-cache/UI routines. The shared interpretation rules below apply on both platforms; capture/navigation instructions apply only to Windows.
 
 ## Scope and preparation
 
@@ -44,13 +49,13 @@ Viewer handles can be recreated: capture the current viewer by its exact observe
 
 ## Requests for invisible background reading
 
-Use the local mode when its account/contact/key-reading scope is authorized. The user can continue using other applications; the reader does not switch the selected chat, click images, use the clipboard, or activate windows. A minimized client can supply locally stored records and attachments without being restored. The client must remain logged in for current-process key discovery.
+Use the applicable local mode when its account/contact/key-reading scope is authorized. The user can continue using other applications; the reader does not switch the selected chat, click images, use the clipboard, or activate windows. Reading cached files does not require restoring a minimized client. On Windows, the client must remain logged in for current-process key discovery. Mac uses existing keys and does not inspect the process's login or window state; `background_verified` and `minimized_verified` are null, never evidence of observed minimization.
 
 Local coverage is limited to the supported database format, synchronized records, normal text messages, ordinary image messages, and available attachment files. Forwarded bundles, unsupported message types, missing downloads, newer storage layouts, and unreadable media remain explicit gaps. Do not call a partial retrieval complete history, the freshest application state, or an original full-resolution image merely because decoding succeeded. Default `.dat` files may be compressed or previews; `_t.dat` is a thumbnail. Report the actual tier and dimensions.
 
 Do not hide, move, or restore a minimized window to make local reading succeed. Desktop capture requires a readable, unminimized window. If local reading cannot access needed material, report the precise gap and propose an agreed desktop collection period or user-supplied file; do not silently switch to UI automation.
 
-The foreground observer records events and samples, not an absolute guarantee about every instant. Distinguish successful reading from verified background/minimized observation. Source-content rechecks reduce concurrent-write errors but are not an atomic cross-database snapshot. See the local-mode reference for result fields and stopping conditions.
+The Windows foreground observer records events and samples, not an absolute guarantee about every instant. Mac has no foreground observer. Distinguish successful reading from verified background/minimized observation. Source-content rechecks reduce concurrent-write errors but are not an atomic cross-database snapshot. See the appropriate platform reference for result fields and stopping conditions.
 
 ## Collect first, analyze after release
 

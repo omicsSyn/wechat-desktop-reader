@@ -13,6 +13,38 @@ HERE = pathlib.Path(__file__).resolve().parent
 TZ = ZoneInfo('Asia/Shanghai')
 
 
+class MissingImageKeyError(ValueError):
+    """This image format requires an independently supplied image key."""
+
+
+class ContactScopeError(ValueError):
+    """A contact selection failure whose fixed message contains no chat data."""
+    MESSAGES = {
+        'contact_not_found': 'No exact contact match; verify the requested nickname or remark',
+        'contact_ambiguous': 'Multiple exact contact matches; select a unique nickname or remark',
+        'individual_contact_required': 'An individual contact is required; group chats are unsupported',
+    }
+
+    def __init__(self, code):
+        self.code = code
+        super().__init__(self.MESSAGES[code])
+
+
+def zstd_library():
+    """Find system libzstd, including native Apple Silicon/Intel Homebrew."""
+    candidates = [ctypes.util.find_library('zstd')]
+    if sys.platform == 'darwin':
+        candidates.extend(['/opt/homebrew/lib/libzstd.dylib',
+                           '/usr/local/lib/libzstd.dylib'])
+    for candidate in candidates:
+        if candidate:
+            try:
+                return ctypes.CDLL(candidate)
+            except OSError:
+                pass
+    return None
+
+
 def stop_observer(process, timeout=5):
     """Stop only this run's observer; an incomplete report cannot verify state."""
     try:
@@ -108,7 +140,9 @@ def unpack_text(value):
     if isinstance(value, str):
         return value
     if value.startswith(b'(\xb5/\xfd'):
-        lib = ctypes.CDLL(ctypes.util.find_library('zstd'))
+        lib = zstd_library()
+        if lib is None:
+            return None
         lib.ZSTD_decompress.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t]
         lib.ZSTD_decompress.restype = ctypes.c_size_t
         lib.ZSTD_isError.argtypes = [ctypes.c_size_t]
@@ -183,6 +217,8 @@ def decrypt_image(data, config, account):
     if not data:
         raise ValueError('Empty local image')
     if data.startswith(b'\x07\x08V2\x08\x07'):
+        if config is None:
+            raise MissingImageKeyError('V2 image requires image_config')
         if len(data) < 31:
             raise ValueError('Truncated V2 image')
         aes_size, xor_size = struct.unpack_from('<II', data, 6)
@@ -201,6 +237,8 @@ def decrypt_image(data, config, account):
         end = len(data) - xor_size
         return first + data[15 + block:end] + bytes((b ^ config & 255 for b in data[end:]))
     if data.startswith(b'\x07\x08\x05V\x02\x05'):
+        if config is None:
+            raise MissingImageKeyError('This image requires image_config')
         return bytes((b ^ config & 255 for b in data[22:]))
     for signature in (b'\xff\xd8\xff', b'\x89PNG\r\n\x1a\n', b'GIF89a'):
         candidate = data[0] ^ signature[0]
@@ -228,18 +266,23 @@ def decode_image(data):
         raise ValueError('Unsupported decoded image type')
     return (data, ext, size, converted)
 
-def read_target(args, secret):
+def read_target(args, secret, *, path_formatter=None, timezone=TZ, image_decoder=None):
+    # Windows keeps its existing defaults; macOS supplies only these adapters.
+    path_formatter = path_formatter or winpath
+    image_decoder = image_decoder or (lambda data: decrypt_image(data, secret['image_config'], args.account))
     root = args.account_dir / 'db_storage'
     keys = {name: bytes.fromhex(value) for name, value in secret['keys'].items()}
     stats = {}
     with open_db(root / 'contact/contact.db', keys['contact/contact.db']) as db:
         matches = db.execute('SELECT username,nick_name,remark FROM contact WHERE nick_name=? OR remark=?', (args.contact, args.contact)).fetchall()
     stats['contact/contact.db'] = dict(db.stats)
+    if not matches:
+        raise ContactScopeError('contact_not_found')
     if len(matches) != 1:
-        raise RuntimeError('Exact contact match is absent or ambiguous')
+        raise ContactScopeError('contact_ambiguous')
     username, nickname, remark = matches[0]
     if not isinstance(username, str) or '@chatroom' in username:
-        raise ValueError('Individual contact required')
+        raise ContactScopeError('individual_contact_required')
     table = 'Msg_' + hashlib.md5(username.encode()).hexdigest()
     allrows = []
     image_rows = []
@@ -266,16 +309,16 @@ def read_target(args, secret):
     result = {'contact': args.contact, 'matched_name': remark or nickname, 'username': username, 'shards': found_shards, 'messages': [], 'images': [], 'database_stats': stats}
     for row in allrows:
         item = {k: row[k] for k in ('shard', 'local_id', 'server_id', 'type', 'sender', 'timestamp')}
-        item['datetime'] = datetime.fromtimestamp(row['timestamp'], TZ).isoformat()
+        item['datetime'] = datetime.fromtimestamp(row['timestamp'], timezone).isoformat()
         item['text'] = unpack_text(row['content']) if row['type'] & 4294967295 == 1 else None
         result['messages'].append(item)
     folder = args.output
-    folder.mkdir(parents=True, exist_ok=False)
+    folder.mkdir(parents=True, exist_ok=False, mode=0o700)
     attach = args.account_dir / 'msg' / 'attach' / table[4:]
     for index, row in enumerate(image_rows, 1):
         meta = {k: row[k] for k in ('shard', 'local_id', 'server_id', 'sender', 'timestamp')}
-        meta['datetime'] = datetime.fromtimestamp(row['timestamp'], TZ).isoformat()
-        date_dir = datetime.fromtimestamp(row['timestamp'], TZ).strftime('%Y-%m')
+        meta['datetime'] = datetime.fromtimestamp(row['timestamp'], timezone).isoformat()
+        date_dir = datetime.fromtimestamp(row['timestamp'], timezone).strftime('%Y-%m')
         try:
             digest = attachment_name(row['packed'])
         except ValueError:
@@ -296,6 +339,8 @@ def read_target(args, secret):
         attempts = []
         for digest, tier, path in hits:
             try:
+                if path.is_symlink() or not path.resolve().is_relative_to(args.account_dir.resolve()):
+                    raise ValueError('Image path escapes the account or is a symlink')
                 before = path.stat()
                 if before.st_size > 64 * 1024 * 1024:
                     raise ValueError('Image exceeds bounded read size')
@@ -303,16 +348,17 @@ def read_target(args, secret):
                 after = path.stat()
                 if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
                     raise ValueError('Image changed during read')
-                decrypted = decrypt_image(encrypted, secret['image_config'], args.account)
+                decrypted = image_decoder(encrypted)
                 image, ext, size, converted = decode_image(decrypted)
                 output = folder / f'image_{index:02d}.{ext}'
                 output.write_bytes(image)
-                meta.update(status='decoded', association='packed_info_field_3_4', tier=tier, size=size, converted=converted, path=winpath(output), source=winpath(path), sha256=hashlib.sha256(image).hexdigest())
+                meta.update(status='decoded', association='packed_info_field_3_4', tier=tier, size=size, converted=converted, path=path_formatter(output), source=path_formatter(path), sha256=hashlib.sha256(image).hexdigest())
                 break
             except (ValueError, OSError, subprocess.TimeoutExpired, Image.DecompressionBombError) as exc:
                 attempts.append({'tier': tier, 'error': type(exc).__name__})
         if 'status' not in meta:
-            meta['status'] = 'decode_failed'
+            meta['status'] = ('missing_image_key' if attempts and all(
+                item['error'] == 'MissingImageKeyError' for item in attempts) else 'decode_failed')
         if attempts:
             meta['failed_tiers'] = attempts
         result['images'].append(meta)

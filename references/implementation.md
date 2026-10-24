@@ -1,6 +1,6 @@
 # Implementation and verification
 
-The desktop and local paths are separate. Choose the local path for minimized-window reading; see [local-mode.md](local-mode.md). Choose desktop capture when the requested material is visible in the client but unavailable through the supported local format. Never switch from local reading to visible navigation without an agreed collection period.
+The desktop and local paths are separate. Choose the platform-specific local path for file reading: [Windows/WSL](local-mode.md), or [experimental native macOS](macos.md). Desktop capture is Windows-only. Choose it when the requested material is visible in the client but unavailable through the supported local format. Never switch from local reading to visible navigation without an agreed collection period.
 
 ## Desktop adapter
 
@@ -16,11 +16,13 @@ Minimized and hidden-window captures did not provide readable evidence in the ex
 
 `local_reader.py` orchestrates read-only process-key discovery, a page-based SQLCipher adapter, exact contact lookup, structural attachment lookup, and a separate read-only window observer. Runtime keys are captured in private parent/child pipes and are not saved or printed by the parent. The source database is never opened for writing. Query results and decoded images are deliberate private output files.
 
+`mac_reader.py` reuses the same scoped query and page adapter with native path formatting, an explicitly selected timezone, and a file-only image decoder. It accepts an existing private raw-key file with exact account/path and database-set binding. It does not extract Mac keys or call the Windows helpers. Unlike the Windows process check, the Mac account identity is caller-declared. No Mac window observer exists: its verification fields are null. See the Mac reference for the precise experimental schema/media coverage and native CI versus live-client distinction.
+
 The observer does not activate windows. Its event hooks and samples describe observed state; `ok`, `background_verified`, and `minimized_verified` have different meanings. The VFS checks authenticated database pages and committed WAL frames, then rechecks the source content. This is a guarded read, not an atomic cross-database snapshot.
 
 ## Tests
 
-The regression suite creates synthetic encrypted SQLite pages, WAL frames, protobuf fields, images, and observer subprocesses. It covers read-only enforcement, authentication failure, incomplete WAL commits, source changes, wrong attachment identity, image decoding, observer timeouts, cleanup, and incomplete observations. It requires no WeChat account, process key, or private fixture.
+The regression suite creates synthetic encrypted SQLite pages, WAL frames, protobuf fields, images, and observer subprocesses. It covers read-only enforcement, authentication failure, incomplete WAL commits, source changes, wrong attachment identity, image decoding, observer timeouts, cleanup, and incomplete observations. Mac cases also exercise private key-file permissions and scope, native output paths and permissions, absent image keys, plaintext media, timezone month boundaries, and absence of Windows/UI helper calls. Native libzstd text decompression is tested on each configured operating system. It requires no WeChat account, process key, or private fixture.
 
 No real WeChat client runs in GitHub Actions. Windows UI behavior, client-version compatibility, live synchronization coverage, and attachment availability require separate local verification.
 

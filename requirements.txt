@@ -1,4 +1,4 @@
-# WSL-side dependencies. Windows helpers use only the standard library.
+# WSL and experimental native macOS. Windows helpers use only the standard library.
 apsw>=3.43.0.0
 cryptography>=41.0.7
 Pillow>=12.1.1

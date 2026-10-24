@@ -15,6 +15,8 @@ The independently written protobuf wire parser uses the field-layout reference [
 
 Database-page and WAL semantics are cross-checked against the [SQLite file format](https://www.sqlite.org/fileformat2.html#walformat) and [SQLCipher API](https://www.zetetic.net/sqlcipher/sqlcipher-api/). The page-based VFS and its synthetic test fixtures are implemented within this project.
 
+The experimental macOS adapter was informed by the layout and compatibility notes in [acmerfight's macOS WeChat toolkit](https://gist.github.com/acmerfight/0a01249ef72970d07a2603dbb629e80f/c98dbb10cf23c30e83d5d744905101b0880887a0), pinned to Gist revision `c98dbb10cf23c30e83d5d744905101b0880887a0`. No implementation from that Gist is copied or invoked. Its reported client validation is not this project's validation. The Mac entrypoint reuses this project's existing page, query, and image code; the existing Apache-2.0 image attribution above continues to apply.
+
 ## Runtime dependencies
 
 APSW, cryptography, and Pillow are installed separately through `requirements.txt`. The operating system supplies libzstd, optional ffmpeg, and Windows APIs. Their distributions are not vendored in this repository. Windows helpers use the Python standard library only.
