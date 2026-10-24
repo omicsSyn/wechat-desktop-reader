@@ -1,0 +1,4 @@
+interface:
+  display_name: "微信聊天与图片读取"
+  short_description: "后台读取已授权的微信本地聊天与图片，或按需使用桌面采集"
+  default_prompt: "使用 $wechat-desktop-reader 读取指定微信聊天中的消息和图片，并说明实际读取范围。"
